@@ -1,0 +1,370 @@
+new_coding_mac <- function (chr, gene_name, genofile, obj_nullmodel, genes, rare_maf_cutoff = 0.01, 
+          rv_num_cutoff = 2, QC_label = "annotation/filter", variant_type = c("SNV", 
+                                                                              "Indel", "variant"), geno_missing_imputation = c("mean", 
+                                                                                                                               "minor"), Annotation_dir = "annotation/info/FunctionalAnnotation", 
+          Annotation_name_catalog, Use_annotation_weights = c(TRUE, 
+                                                              FALSE), Annotation_name = NULL, silent = FALSE, MAC_super_rare=10, cMAC_super_rare = 10) 
+{
+  variant_type <- match.arg(variant_type)
+  geno_missing_imputation <- match.arg(geno_missing_imputation)
+  phenotype.id <- as.character(obj_nullmodel$id_include)
+  filter <- seqGetData(genofile, QC_label)
+  if (variant_type == "variant") {
+    SNVlist <- filter == "PASS"
+  }
+  if (variant_type == "SNV") {
+    SNVlist <- (filter == "PASS") & isSNV(genofile)
+  }
+  if (variant_type == "Indel") {
+    SNVlist <- (filter == "PASS") & (!isSNV(genofile))
+  }
+  position <- as.numeric(seqGetData(genofile, "position"))
+  variant.id <- seqGetData(genofile, "variant.id")
+  rm(filter)
+  gc()
+  kk <- which(genes[, 1] == gene_name)
+  sub_start_loc <- genes[kk, 3]
+  sub_end_loc <- genes[kk, 4]
+  is.in <- (SNVlist) & (position >= sub_start_loc) & (position <= 
+                                                        sub_end_loc)
+  variant.id.gene <- variant.id[is.in]
+  rm(position)
+  gc()
+  seqSetFilter(genofile, variant.id = variant.id.gene, sample.id = phenotype.id)
+  GENCODE.EXONIC.Category <- seqGetData(genofile, paste0(Annotation_dir, 
+                                                         Annotation_name_catalog$dir[which(Annotation_name_catalog$name == 
+                                                                                             "GENCODE.EXONIC.Category")]))
+  GENCODE.Category <- seqGetData(genofile, paste0(Annotation_dir, 
+                                                  Annotation_name_catalog$dir[which(Annotation_name_catalog$name == 
+                                                                                      "GENCODE.Category")]))
+  MetaSVM_pred <- seqGetData(genofile, paste0(Annotation_dir, 
+                                              Annotation_name_catalog$dir[which(Annotation_name_catalog$name == 
+                                                                                  "MetaSVM")]))
+  variant.id.gene <- seqGetData(genofile, "variant.id")
+  lof.in.coding <- (GENCODE.EXONIC.Category == "stopgain") | 
+    (GENCODE.EXONIC.Category == "stoploss") | (GENCODE.Category == 
+                                                 "splicing") | (GENCODE.Category == "exonic;splicing") | 
+    (GENCODE.Category == "ncRNA_splicing") | (GENCODE.Category == 
+                                                "ncRNA_exonic;splicing") | (GENCODE.EXONIC.Category == 
+                                                                              "nonsynonymous SNV") | (GENCODE.EXONIC.Category == "synonymous SNV")
+  variant.id.gene <- variant.id.gene[lof.in.coding]
+  seqSetFilter(genofile, variant.id = variant.id.gene, sample.id = phenotype.id)
+  GENCODE.EXONIC.Category <- seqGetData(genofile, paste0(Annotation_dir, 
+                                                         Annotation_name_catalog$dir[which(Annotation_name_catalog$name == 
+                                                                                             "GENCODE.EXONIC.Category")]))
+  GENCODE.Category <- seqGetData(genofile, paste0(Annotation_dir, 
+                                                  Annotation_name_catalog$dir[which(Annotation_name_catalog$name == 
+                                                                                      "GENCODE.Category")]))
+  MetaSVM_pred <- seqGetData(genofile, paste0(Annotation_dir, 
+                                              Annotation_name_catalog$dir[which(Annotation_name_catalog$name == 
+                                                                                  "MetaSVM")]))
+  Anno.Int.PHRED.sub <- NULL
+  Anno.Int.PHRED.sub.name <- NULL
+  if (variant_type == "SNV") {
+    if (Use_annotation_weights) {
+      for (k in 1:length(Annotation_name)) {
+        if (Annotation_name[k] %in% Annotation_name_catalog$name) {
+          Anno.Int.PHRED.sub.name <- c(Anno.Int.PHRED.sub.name, 
+                                       Annotation_name[k])
+          Annotation.PHRED <- seqGetData(genofile, paste0(Annotation_dir, 
+                                                          Annotation_name_catalog$dir[which(Annotation_name_catalog$name == 
+                                                                                              Annotation_name[k])]))
+          if (Annotation_name[k] == "CADD") {
+            Annotation.PHRED[is.na(Annotation.PHRED)] <- 0
+          }
+          if (Annotation_name[k] == "aPC.LocalDiversity") {
+            Annotation.PHRED.2 <- -10 * log10(1 - 10^(-Annotation.PHRED/10))
+            Annotation.PHRED <- cbind(Annotation.PHRED, 
+                                      Annotation.PHRED.2)
+            Anno.Int.PHRED.sub.name <- c(Anno.Int.PHRED.sub.name, 
+                                         paste0(Annotation_name[k], "(-)"))
+          }
+          Anno.Int.PHRED.sub <- cbind(Anno.Int.PHRED.sub, 
+                                      Annotation.PHRED)
+        }
+      }
+      Anno.Int.PHRED.sub <- data.frame(Anno.Int.PHRED.sub)
+      colnames(Anno.Int.PHRED.sub) <- Anno.Int.PHRED.sub.name
+    }
+  }
+  variant.id.gene <- seqGetData(genofile, "variant.id")
+  lof.in.plof <- (GENCODE.EXONIC.Category == "stopgain") | 
+    (GENCODE.EXONIC.Category == "stoploss") | (GENCODE.Category == 
+                                                 "splicing") | (GENCODE.Category == "exonic;splicing") | 
+    (GENCODE.Category == "ncRNA_splicing") | (GENCODE.Category == 
+                                                "ncRNA_exonic;splicing") | ((GENCODE.EXONIC.Category == 
+                                                                               "nonsynonymous SNV") & (MetaSVM_pred == "D"))
+  variant.id.gene.category <- variant.id.gene[lof.in.plof]
+  seqSetFilter(genofile, variant.id = variant.id.gene.category, 
+               sample.id = phenotype.id)
+  id.genotype <- seqGetData(genofile, "sample.id")
+  id.genotype.merge <- data.frame(id.genotype, index = seq(1, 
+                                                           length(id.genotype)))
+  phenotype.id.merge <- data.frame(phenotype.id)
+  phenotype.id.merge <- dplyr::left_join(phenotype.id.merge, 
+                                         id.genotype.merge, by = c(phenotype.id = "id.genotype"))
+  id.genotype.match <- phenotype.id.merge$index
+  Geno <- seqGetData(genofile, "$dosage")
+  Geno <- Geno[id.genotype.match, , drop = FALSE]
+  if (!is.null(dim(Geno))) {
+    if (dim(Geno)[2] > 0) {
+      if (geno_missing_imputation == "mean") {
+        Geno <- matrix_flip_mean(Geno)$Geno
+      }
+      if (geno_missing_imputation == "minor") {
+        Geno <- matrix_flip_minor(Geno)$Geno
+      }
+    }
+  }  
+  Anno.Int.PHRED.sub$LINSIGHT <- NULL
+  Anno.Int.PHRED.sub.category <- Anno.Int.PHRED.sub[lof.in.plof, 
+  ]
+
+  pvalues <- 0
+  try(pvalues <- STAAR_new(Geno, obj_nullmodel, Anno.Int.PHRED.sub.category, 
+                       rare_maf_cutoff = rare_maf_cutoff, rv_num_cutoff = rv_num_cutoff, MAC_super_rare = MAC_super_rare, cMAC_super_rare = cMAC_super_rare), 
+      silent = silent)
+  results_plof_ds <- c()
+  if (class(pvalues) == "list") {
+    results_temp <- as.vector(genes[kk, ])
+    results_temp[3] <- "plof_ds"
+    results_temp[2] <- chr
+    results_temp[1] <- as.character(genes[kk, 1])
+    results_temp[4] <- pvalues$num_variant
+    results_temp[5] <- pvalues$cMAC
+    results_temp <- c(results_temp, pvalues$results_STAAR_S_1_25, 
+                      pvalues$results_STAAR_S_1_1, pvalues$results_STAAR_B_1_25, 
+                      pvalues$results_STAAR_B_1_1, pvalues$results_STAAR_A_1_25, 
+                      pvalues$results_STAAR_A_1_1, pvalues$results_ACAT_O, 
+                      pvalues$results_STAAR_O)
+    results_plof_ds <- rbind(results_plof_ds, results_temp)
+  }
+  if (!is.null(results_plof_ds)) {
+    colnames(results_plof_ds) <- colnames(results_plof_ds, 
+                                          do.NULL = FALSE, prefix = "col")
+    colnames(results_plof_ds)[1:5] <- c("Gene name", "Chr", 
+                                        "Category", "#SNV","cMAC")
+    colnames(results_plof_ds)[(dim(results_plof_ds)[2] - 
+                                 1):dim(results_plof_ds)[2]] <- c("ACAT-O", "STAAR-O")
+  }
+  lof.in.plof <- (GENCODE.EXONIC.Category == "stopgain") | 
+    (GENCODE.EXONIC.Category == "stoploss") | (GENCODE.Category == 
+                                                 "splicing") | (GENCODE.Category == "exonic;splicing") | 
+    (GENCODE.Category == "ncRNA_splicing") | (GENCODE.Category == 
+                                                "ncRNA_exonic;splicing")
+  variant.id.gene.category <- variant.id.gene[lof.in.plof]
+  seqSetFilter(genofile, variant.id = variant.id.gene.category, 
+               sample.id = phenotype.id)
+  id.genotype <- seqGetData(genofile, "sample.id")
+  id.genotype.merge <- data.frame(id.genotype, index = seq(1, 
+                                                           length(id.genotype)))
+  phenotype.id.merge <- data.frame(phenotype.id)
+  phenotype.id.merge <- dplyr::left_join(phenotype.id.merge, 
+                                         id.genotype.merge, by = c(phenotype.id = "id.genotype"))
+  id.genotype.match <- phenotype.id.merge$index
+  Geno <- seqGetData(genofile, "$dosage")
+  Geno <- Geno[id.genotype.match, , drop = FALSE]
+  if (!is.null(dim(Geno))) {
+    if (dim(Geno)[2] > 0) {
+      if (geno_missing_imputation == "mean") {
+        Geno <- matrix_flip_mean(Geno)$Geno
+      }
+      if (geno_missing_imputation == "minor") {
+        Geno <- matrix_flip_minor(Geno)$Geno
+      }
+    }
+  }
+  Anno.Int.PHRED.sub.category <- Anno.Int.PHRED.sub[lof.in.plof, 
+  ]
+  pvalues <- 0
+  try(pvalues <- STAAR_new(Geno, obj_nullmodel, Anno.Int.PHRED.sub.category, 
+                           rare_maf_cutoff = rare_maf_cutoff, rv_num_cutoff = rv_num_cutoff, MAC_super_rare = MAC_super_rare, cMAC_super_rare = cMAC_super_rare), 
+      silent = silent)
+  results_plof <- c()
+  if (class(pvalues) == "list") {
+    results_temp <- as.vector(genes[kk, ])
+    results_temp[3] <- "plof"
+    results_temp[2] <- chr
+    results_temp[1] <- as.character(genes[kk, 1])
+    results_temp[4] <- pvalues$num_variant
+    results_temp[5] <- pvalues$cMAC
+    results_temp <- c(results_temp, pvalues$results_STAAR_S_1_25, 
+                      pvalues$results_STAAR_S_1_1, pvalues$results_STAAR_B_1_25, 
+                      pvalues$results_STAAR_B_1_1, pvalues$results_STAAR_A_1_25, 
+                      pvalues$results_STAAR_A_1_1, pvalues$results_ACAT_O, 
+                      pvalues$results_STAAR_O)
+    results_plof <- rbind(results_plof, results_temp)
+  }
+  if (!is.null(results_plof)) {
+    colnames(results_plof) <- colnames(results_plof, do.NULL = FALSE, 
+                                       prefix = "col")
+    colnames(results_plof)[1:5] <- c("Gene name", "Chr", 
+                                     "Category", "#SNV","cMAC")
+    colnames(results_plof)[(dim(results_plof)[2] - 1):dim(results_plof)[2]] <- c("ACAT-O", 
+                                                                                 "STAAR-O")
+  }
+  lof.in.synonymous <- (GENCODE.EXONIC.Category == "synonymous SNV")
+  variant.id.gene.category <- variant.id.gene[lof.in.synonymous]
+  seqSetFilter(genofile, variant.id = variant.id.gene.category, 
+               sample.id = phenotype.id)
+  id.genotype <- seqGetData(genofile, "sample.id")
+  id.genotype.merge <- data.frame(id.genotype, index = seq(1, 
+                                                           length(id.genotype)))
+  phenotype.id.merge <- data.frame(phenotype.id)
+  phenotype.id.merge <- dplyr::left_join(phenotype.id.merge, 
+                                         id.genotype.merge, by = c(phenotype.id = "id.genotype"))
+  id.genotype.match <- phenotype.id.merge$index
+  Geno <- seqGetData(genofile, "$dosage")
+  Geno <- Geno[id.genotype.match, , drop = FALSE]
+  if (!is.null(dim(Geno))) {
+    if (dim(Geno)[2] > 0) {
+      if (geno_missing_imputation == "mean") {
+        Geno <- matrix_flip_mean(Geno)$Geno
+      }
+      if (geno_missing_imputation == "minor") {
+        Geno <- matrix_flip_minor(Geno)$Geno
+      }
+    }
+  }
+  Anno.Int.PHRED.sub.category <- Anno.Int.PHRED.sub[lof.in.synonymous, 
+  ]
+  pvalues <- 0
+  try(pvalues <- STAAR_new(Geno, obj_nullmodel, Anno.Int.PHRED.sub.category, 
+                           rare_maf_cutoff = rare_maf_cutoff, rv_num_cutoff = rv_num_cutoff, MAC_super_rare = MAC_super_rare, cMAC_super_rare = cMAC_super_rare), 
+      silent = silent)
+  results_synonymous <- c()
+  if (class(pvalues) == "list") {
+    results_temp <- as.vector(genes[kk, ])
+    results_temp[3] <- "synonymous"
+    results_temp[2] <- chr
+    results_temp[1] <- as.character(genes[kk, 1])
+    results_temp[4] <- pvalues$num_variant
+    results_temp[5] <- pvalues$cMAC
+    results_temp <- c(results_temp, pvalues$results_STAAR_S_1_25, 
+                      pvalues$results_STAAR_S_1_1, pvalues$results_STAAR_B_1_25, 
+                      pvalues$results_STAAR_B_1_1, pvalues$results_STAAR_A_1_25, 
+                      pvalues$results_STAAR_A_1_1, pvalues$results_ACAT_O, 
+                      pvalues$results_STAAR_O)
+    results_synonymous <- rbind(results_synonymous, results_temp)
+  }
+  if (!is.null(results_synonymous)) {
+    colnames(results_synonymous) <- colnames(results_synonymous, 
+                                             do.NULL = FALSE, prefix = "col")
+    colnames(results_synonymous)[1:5] <- c("Gene name", "Chr", 
+                                           "Category", "#SNV","cMAC")
+    colnames(results_synonymous)[(dim(results_synonymous)[2] - 
+                                    1):dim(results_synonymous)[2]] <- c("ACAT-O", "STAAR-O")
+  }
+  lof.in.missense <- (GENCODE.EXONIC.Category == "nonsynonymous SNV")
+  variant.id.gene.category <- variant.id.gene[lof.in.missense]
+  seqSetFilter(genofile, variant.id = variant.id.gene.category, 
+               sample.id = phenotype.id)
+  id.genotype <- seqGetData(genofile, "sample.id")
+  id.genotype.merge <- data.frame(id.genotype, index = seq(1, 
+                                                           length(id.genotype)))
+  phenotype.id.merge <- data.frame(phenotype.id)
+  phenotype.id.merge <- dplyr::left_join(phenotype.id.merge, 
+                                         id.genotype.merge, by = c(phenotype.id = "id.genotype"))
+  id.genotype.match <- phenotype.id.merge$index
+  Geno <- seqGetData(genofile, "$dosage")
+  Geno <- Geno[id.genotype.match, , drop = FALSE]
+  if (!is.null(dim(Geno))) {
+    if (dim(Geno)[2] > 0) {
+      if (geno_missing_imputation == "mean") {
+        Geno <- matrix_flip_mean(Geno)$Geno
+      }
+      if (geno_missing_imputation == "minor") {
+        Geno <- matrix_flip_minor(Geno)$Geno
+      }
+    }
+  }
+  Anno.Int.PHRED.sub.category <- Anno.Int.PHRED.sub[lof.in.missense, 
+  ]
+  pvalues <- 0
+  try(pvalues <- STAAR_new(Geno, obj_nullmodel, Anno.Int.PHRED.sub.category, 
+                           rare_maf_cutoff = rare_maf_cutoff, rv_num_cutoff = rv_num_cutoff, MAC_super_rare = MAC_super_rare, cMAC_super_rare = cMAC_super_rare), 
+      silent = silent)
+  results_missense <- c()
+  if (class(pvalues) == "list") {
+    results_temp <- as.vector(genes[kk, ])
+    results_temp[3] <- "missense"
+    results_temp[2] <- chr
+    results_temp[1] <- as.character(genes[kk, 1])
+    results_temp[4] <- pvalues$num_variant
+    results_temp[5] <- pvalues$cMAC
+    results_temp <- c(results_temp, pvalues$results_STAAR_S_1_25, 
+                      pvalues$results_STAAR_S_1_1, pvalues$results_STAAR_B_1_25, 
+                      pvalues$results_STAAR_B_1_1, pvalues$results_STAAR_A_1_25, 
+                      pvalues$results_STAAR_A_1_1, pvalues$results_ACAT_O, 
+                      pvalues$results_STAAR_O)
+    results_missense <- rbind(results_missense, results_temp)
+  }
+  if (!is.null(results_missense)) {
+    colnames(results_missense) <- colnames(results_missense, do.NULL = FALSE, 
+                                  prefix = "col")
+    colnames(results_missense)[1:5] <- c("Gene name", "Chr", "Category", 
+                                "#SNV","cMAC")
+    colnames(results_missense)[(dim(results_missense)[2] - 1):dim(results_missense)[2]] <- c("ACAT-O", 
+                                                                  "STAAR-O")
+  }
+  
+  lof.in.dmissense <- (GENCODE.EXONIC.Category == "nonsynonymous SNV") & 
+    (MetaSVM_pred == "D")
+  variant.id.gene.category <- variant.id.gene[lof.in.dmissense]
+  seqSetFilter(genofile, variant.id = variant.id.gene.category, 
+               sample.id = phenotype.id)
+  id.genotype <- seqGetData(genofile, "sample.id")
+  id.genotype.merge <- data.frame(id.genotype, index = seq(1, 
+                                                           length(id.genotype)))
+  phenotype.id.merge <- data.frame(phenotype.id)
+  phenotype.id.merge <- dplyr::left_join(phenotype.id.merge, 
+                                         id.genotype.merge, by = c(phenotype.id = "id.genotype"))
+  id.genotype.match <- phenotype.id.merge$index
+  Geno <- seqGetData(genofile, "$dosage")
+  Geno <- Geno[id.genotype.match, , drop = FALSE]
+  if (!is.null(dim(Geno))) {
+    if (dim(Geno)[2] > 0) {
+      if (geno_missing_imputation == "mean") {
+        Geno <- matrix_flip_mean(Geno)$Geno
+      }
+      if (geno_missing_imputation == "minor") {
+        Geno <- matrix_flip_minor(Geno)$Geno
+      }
+    }
+  }
+  Anno.Int.PHRED.sub.category <- Anno.Int.PHRED.sub[lof.in.dmissense, 
+  ]
+  pvalues <- 0
+  try(pvalues <- STAAR_new(Geno, obj_nullmodel, Anno.Int.PHRED.sub.category, 
+                           rare_maf_cutoff = rare_maf_cutoff, rv_num_cutoff = rv_num_cutoff, MAC_super_rare = MAC_super_rare, cMAC_super_rare = cMAC_super_rare), 
+      silent = silent)
+  results_dmissense <- c()
+  if (class(pvalues) == "list") {
+    results_temp <- as.vector(genes[kk, ])
+    results_temp[3] <- "disruptive_missense"
+    results_temp[2] <- chr
+    results_temp[1] <- as.character(genes[kk, 1])
+    results_temp[4] <- pvalues$num_variant
+    results_temp[5] <- pvalues$cMAC
+    results_temp <- c(results_temp, pvalues$results_STAAR_S_1_25, 
+                      pvalues$results_STAAR_S_1_1, pvalues$results_STAAR_B_1_25, 
+                      pvalues$results_STAAR_B_1_1, pvalues$results_STAAR_A_1_25, 
+                      pvalues$results_STAAR_A_1_1, pvalues$results_ACAT_O, 
+                      pvalues$results_STAAR_O)
+    results_dmissense <- rbind(results_dmissense, results_temp)
+  }
+  if (!is.null(results_dmissense)) {
+    colnames(results_dmissense) <- colnames(results_dmissense, do.NULL = FALSE, 
+                                  prefix = "col")
+    colnames(results_dmissense)[1:5] <- c("Gene name", "Chr", "Category", 
+                                "#SNV","cMAC")
+    colnames(results_dmissense)[(dim(results_dmissense)[2] - 1):dim(results_dmissense)[2]] <- c("ACAT-O", 
+                                                                  "STAAR-O")
+  }
+  
+  results_coding <- list(plof = results_plof, plof_ds = results_plof_ds, 
+                         missense = results_missense, disruptive_missense = results_dmissense, 
+                         synonymous = results_synonymous)
+  seqResetFilter(genofile)
+  return(results_coding)
+}
