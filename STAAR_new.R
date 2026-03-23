@@ -109,7 +109,7 @@ STAAR_new <- function (genotype, obj_nullmodel, annotation_phred = NULL, rare_ma
     print(paste0("cMAC super rare is ", cMAC_superrare, " with ",num_variant_ACAT, " super rare variants"))
     print(paste0("cMAC is ", cMAC, " with ",num_variant, " rare variants"))
     if ((cMAC_superrare!= 0 & cMAC_superrare < cMAC_super_rare)|(cMAC == cMAC_superrare)) {
-      print(paste0("ACAT is removed for ",as.character(genes[kk, 1])))
+      print(paste0("ACAT is removed for ",as.character(gene.name)))
       pvalues <- pvalues[1:(4*num_annotation)]
       results_STAAR_O <- CCT(pvalues)
       results_ACAT_O <- CCT(pvalues[c(1, num_annotation + 1, 
@@ -145,7 +145,7 @@ STAAR_new <- function (genotype, obj_nullmodel, annotation_phred = NULL, rare_ma
       
     }
     else {
-      print(paste0("ACAT is not removed for ",as.character(genes[kk, 1])))
+      print(paste0("ACAT is not removed for ",as.character(gene_name)))
       results_STAAR_O <- CCT(pvalues)
       results_ACAT_O <- CCT(pvalues[c(1, num_annotation + 1, 
                                       2 * num_annotation + 1, 3 * num_annotation + 1, 4 * 
